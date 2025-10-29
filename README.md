@@ -4,10 +4,10 @@ This repository contains a full-featured Home Assistant integration for Salus iT
 
 ## Quick Links
 
-- 📖 [Full Documentation](salus_it600_cloud/README.md)
+- 📖 [Full Documentation](custom_components/salus_it600_cloud/README.md)
 - 🐛 [Report Issues](../../issues)
 - 💬 [Discussions](../../discussions)
-- 📦 [Installation Guide](salus_it600_cloud/INSTALLATION.md)
+- 📦 [Installation Guide](custom_components/salus_it600_cloud/INSTALLATION.md)
 
 ## Features
 
@@ -43,19 +43,15 @@ git clone https://github.com/Peterka35/salus-it600-cloud.git
 # Restart Home Assistant
 ```
 
-## Screenshot
-
-![Salus Integration](docs/screenshot.png)
-
-*Example of thermostat entities in Home Assistant*
-
 ## Contributing
 
-Contributions welcome! See [README](salus_it600_cloud/README.md) for details.
+Contributions welcome! See [README](custom_components/salus_it600_cloud/README.md) for details.
 
 ## License
 
-MIT License - See [LICENSE](salus_it600_cloud/LICENSE)
+MIT License - See [LICENSE](custom_components/salus_it600_cloud/LICENSE)
+
+**Co je MIT Licence?** Otevřená licence, která umožňuje komukoliv volně používat, upravovat a šířit tento kód, i v komerčních projektech. Jediná podmínka je zachovat copyright poznámku.
 
 ## Support
 
