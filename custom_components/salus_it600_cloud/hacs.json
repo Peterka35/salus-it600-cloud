@@ -1,0 +1,7 @@
+{
+  "name": "Salus iT600 Cloud",
+  "render_readme": true,
+  "domains": ["climate", "sensor", "switch", "binary_sensor", "button"],
+  "iot_class": "Cloud Polling",
+  "homeassistant": "2023.1.0"
+}
