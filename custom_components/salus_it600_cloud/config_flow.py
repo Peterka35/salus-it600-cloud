@@ -52,10 +52,10 @@ class SalusIT600CloudConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 gateways = await gateway.get_gateways()
 
                 if not gateways:
-                    _LOGGER.warning("Authentication successful but no gateways found")
+                    _LOGGER.debug("Authentication successful but no gateways found")
                     errors["base"] = "no_devices"
                 else:
-                    _LOGGER.info(
+                    _LOGGER.debug(
                         "Authentication successful, found %d gateway(s)", len(gateways)
                     )
 

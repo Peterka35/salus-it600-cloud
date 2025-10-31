@@ -38,7 +38,7 @@ async def async_setup_entry(
             gateway_id = rule_data.get("_gateway_id", "")
 
             if not rule_trigger_key:
-                _LOGGER.warning("Skipping rule %s - no trigger key", rule_name)
+                _LOGGER.debug("Skipping rule %s - no trigger key", rule_name)
                 continue
 
             # Skip auto-generated rules (they start with _)

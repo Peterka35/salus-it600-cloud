@@ -174,7 +174,7 @@ class SalusCloudGateway:
             # Calculate token expiry (tokens are valid for 3 hours = 10800 seconds)
             self._token_expiry = datetime.now(timezone.utc) + timedelta(seconds=10800)
 
-            _LOGGER.info("Successfully authenticated with AWS Cognito")
+            _LOGGER.debug("Successfully authenticated with AWS Cognito")
 
         except SoftwareTokenMFAChallengeException as err:
             _LOGGER.error("MFA is required but not supported: %s", err)
@@ -203,7 +203,7 @@ class SalusCloudGateway:
                 # Run synchronous refresh in a thread to avoid blocking
                 await asyncio.to_thread(self._sync_refresh_tokens)
                 self._token_expiry = datetime.now(timezone.utc) + timedelta(seconds=10800)
-                _LOGGER.info("Successfully refreshed access tokens")
+                _LOGGER.debug("Successfully refreshed access tokens")
             else:
                 # Re-authenticate if we don't have refresh token
                 await self.authenticate()
@@ -274,7 +274,7 @@ class SalusCloudGateway:
                 self._aws_secret_key = credentials["SecretKey"]
                 self._aws_session_token = credentials["SessionToken"]
 
-                _LOGGER.info("Successfully obtained AWS IoT credentials")
+                _LOGGER.debug("Successfully obtained AWS IoT credentials")
 
         except Exception as err:
             _LOGGER.error("Failed to get AWS IoT credentials: %s", err)
@@ -305,9 +305,9 @@ class SalusCloudGateway:
         headers = self._get_headers()
 
         # Log request details for debugging
-        _LOGGER.info("Making %s request to %s", method, url)
+        _LOGGER.debug("Making %s request to %s", method, url)
         if "json" in kwargs:
-            _LOGGER.info("Request JSON: %s", kwargs["json"])
+            _LOGGER.debug("Request JSON: %s", kwargs["json"])
 
         try:
             async with self._session.request(
@@ -315,7 +315,7 @@ class SalusCloudGateway:
             ) as response:
                 response.raise_for_status()
                 result = await response.json()
-                _LOGGER.info("Response: %s", result)
+                _LOGGER.debug("Response: %s", result)
                 return result
 
         except aiohttp.ClientResponseError as err:
@@ -503,11 +503,11 @@ class SalusCloudGateway:
             return
 
         try:
-            _LOGGER.info("Starting MQTT connection to AWS IoT")
+            _LOGGER.debug("Starting MQTT connection to AWS IoT")
 
             # Get AWS IoT credentials if we don't have them
             if not self._aws_access_key:
-                _LOGGER.info("Getting AWS IoT credentials first")
+                _LOGGER.debug("Getting AWS IoT credentials first")
                 await self._get_aws_iot_credentials()
 
             _LOGGER.debug("Creating signed WebSocket URL...")
@@ -549,7 +549,7 @@ class SalusCloudGateway:
             import uuid
             connection_uuid = str(uuid.uuid4())
             client_id = f"{self._gateway_device_code}-{connection_uuid}"
-            _LOGGER.info("Creating MQTT client with ID: %s", client_id)
+            _LOGGER.debug("Creating MQTT client with ID: %s", client_id)
             self._mqtt_client = mqtt.Client(
                 client_id=client_id,
                 transport="websockets",
@@ -560,7 +560,7 @@ class SalusCloudGateway:
             def on_connect(client, userdata, flags, rc):
                 self._mqtt_connect_rc = rc
                 if rc == 0:
-                    _LOGGER.info("MQTT connected successfully (rc=0)")
+                    _LOGGER.debug("MQTT connected successfully (rc=0)")
                     self._mqtt_connected = True
                 else:
                     _LOGGER.error("MQTT connection failed (rc=%s): %s", rc, mqtt.connack_string(rc))
@@ -582,7 +582,7 @@ class SalusCloudGateway:
                 elif level == mqtt.MQTT_LOG_WARNING:
                     _LOGGER.warning("MQTT: %s", buf)
                 elif level == mqtt.MQTT_LOG_NOTICE:
-                    _LOGGER.info("MQTT: %s", buf)
+                    _LOGGER.debug("MQTT: %s", buf)
                 else:
                     _LOGGER.debug("MQTT: %s", buf)
 
@@ -630,7 +630,7 @@ class SalusCloudGateway:
                     )
 
                     # Connect (default port 443 for wss)
-                    _LOGGER.info("Connecting to MQTT broker at %s:443", parsed.hostname)
+                    _LOGGER.debug("Connecting to MQTT broker at %s:443", parsed.hostname)
                     self._mqtt_client.connect(parsed.hostname, 443, keepalive=60)
                     _LOGGER.debug("MQTT connect() call completed, starting network loop")
                     self._mqtt_client.loop_start()
@@ -664,7 +664,7 @@ class SalusCloudGateway:
                 _LOGGER.error(error_msg)
                 raise SalusCloudConnectionError(error_msg)
 
-            _LOGGER.info("MQTT connection established successfully")
+            _LOGGER.debug("MQTT connection established successfully")
 
         except Exception as err:
             _LOGGER.error("Failed to connect to AWS IoT MQTT: %s", err, exc_info=True)
@@ -687,7 +687,7 @@ class SalusCloudGateway:
             device_index: Device index in shadow (if None, will try to fetch it)
         """
         try:
-            _LOGGER.info("Updating device shadow for %s", device_code)
+            _LOGGER.debug("Updating device shadow for %s", device_code)
 
             # Ensure MQTT is connected
             await self._ensure_mqtt_connected()
@@ -707,12 +707,12 @@ class SalusCloudGateway:
                                 _LOGGER.debug("Found device index from shadow: %s", device_index)
                                 break
                 except Exception as e:
-                    _LOGGER.warning("Could not fetch device index from shadow: %s", e)
+                    _LOGGER.debug("Could not fetch device index from shadow: %s", e)
 
                 # Fallback to default if still not found
                 if device_index is None:
                     device_index = "11"
-                    _LOGGER.warning("Using default device index '11' - this may not work for all devices")
+                    _LOGGER.debug("Using default device index '11' - this may not work for all devices")
 
             # Create shadow update payload
             shadow_update = {
@@ -742,7 +742,7 @@ class SalusCloudGateway:
 
             await asyncio.to_thread(publish_sync)
 
-            _LOGGER.info("Successfully published shadow update for %s (index: %s)", device_code, device_index)
+            _LOGGER.debug("Successfully published shadow update for %s (index: %s)", device_code, device_index)
 
         except Exception as err:
             _LOGGER.error("Failed to update device shadow: %s", err, exc_info=True)
@@ -754,7 +754,7 @@ class SalusCloudGateway:
         self, device_code: str, temperature: float, device_index: str | None = None
     ) -> None:
         """Set target temperature for a thermostat."""
-        _LOGGER.info("Setting temperature for %s to %.1f°C", device_code, temperature)
+        _LOGGER.debug("Setting temperature for %s to %.1f°C", device_code, temperature)
 
         # Convert temperature to x100 format
         temp_x100 = int(temperature * 100)
@@ -780,7 +780,7 @@ class SalusCloudGateway:
                 7 = Standby/Frost mode (frost protection)
             device_index: Device index in shadow (optional)
         """
-        _LOGGER.info("Setting hold mode for %s to %d", device_code, mode)
+        _LOGGER.debug("Setting hold mode for %s to %d", device_code, mode)
 
         properties = {
             "ep9:sIT600TH:SetHoldType": mode,
@@ -792,7 +792,7 @@ class SalusCloudGateway:
         self, device_code: str, state: bool, device_index: str | None = None
     ) -> None:
         """Turn switch/relay on or off."""
-        _LOGGER.info("Setting switch %s to %s", device_code, "ON" if state else "OFF")
+        _LOGGER.debug("Setting switch %s to %s", device_code, "ON" if state else "OFF")
 
         properties = {
             "ep9:sOnOffS:SetOnOff": 1 if state else 0
@@ -808,7 +808,7 @@ class SalusCloudGateway:
         Gateway shadow uses special device ID "000000000001".
         """
         try:
-            _LOGGER.info("Updating gateway shadow for %s", gateway_code)
+            _LOGGER.debug("Updating gateway shadow for %s", gateway_code)
 
             # Ensure MQTT is connected
             await self._ensure_mqtt_connected()
@@ -840,7 +840,7 @@ class SalusCloudGateway:
 
             await asyncio.to_thread(publish_sync)
 
-            _LOGGER.info("Successfully published gateway shadow update for %s", gateway_code)
+            _LOGGER.debug("Successfully published gateway shadow update for %s", gateway_code)
 
         except Exception as err:
             _LOGGER.error("Failed to update gateway shadow: %s", err)
@@ -857,7 +857,7 @@ class SalusCloudGateway:
             gateway_code: Gateway device code (not gateway ID)
             rule_trigger_key: Rule trigger key from the rule data
         """
-        _LOGGER.info("Triggering OneTouch rule with key: %s", rule_trigger_key)
+        _LOGGER.debug("Triggering OneTouch rule with key: %s", rule_trigger_key)
 
         # OneTouch rules are triggered via gateway shadow update
         properties = {
