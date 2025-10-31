@@ -142,6 +142,8 @@ class SalusCloudGateway:
         # MQTT client
         self._mqtt_client: mqtt.Client | None = None
         self._mqtt_connected: bool = False
+        self._mqtt_connect_event: asyncio.Event | None = None
+        self._mqtt_connect_rc: int | None = None
 
     def _sync_authenticate(self) -> None:
         """Synchronous authentication (to be run in thread)."""
@@ -444,6 +446,8 @@ class SalusCloudGateway:
                             if isinstance(value, dict) and "properties" in value:
                                 device["_shadow_properties"] = value["properties"]
                                 device["_shadow_model"] = value.get("model")
+                                device["_shadow_device_index"] = key  # Store device index for updates!
+                                _LOGGER.debug("Device %s uses shadow index: %s", device_code, key)
                                 break
 
                         # Store full shadow for reference
@@ -495,7 +499,7 @@ class SalusCloudGateway:
     async def _ensure_mqtt_connected(self) -> None:
         """Ensure MQTT client is connected to AWS IoT."""
         if self._mqtt_connected and self._mqtt_client:
-            _LOGGER.info("MQTT already connected, skipping")
+            _LOGGER.debug("MQTT already connected, skipping")
             return
 
         try:
@@ -506,7 +510,7 @@ class SalusCloudGateway:
                 _LOGGER.info("Getting AWS IoT credentials first")
                 await self._get_aws_iot_credentials()
 
-            _LOGGER.info("Creating signed WebSocket URL...")
+            _LOGGER.debug("Creating signed WebSocket URL...")
             # Create signed WebSocket URL
             websocket_url = _create_signed_websocket_url(
                 host=AWS_IOT_ENDPOINT,
@@ -516,8 +520,8 @@ class SalusCloudGateway:
                 session_token=self._aws_session_token,
             )
 
-            _LOGGER.info("Created signed WebSocket URL for AWS IoT")
-            _LOGGER.debug("WebSocket URL: %s", websocket_url)
+            _LOGGER.debug("Created signed WebSocket URL for AWS IoT")
+            _LOGGER.debug("WebSocket URL (first 100 chars): %s...", websocket_url[:100])
 
             # Get gateway info for client ID (required for AWS IoT policy)
             # AWS IoT policy expects client ID format: {GATEWAY_DEVICE_CODE}-{UUID}
@@ -535,6 +539,10 @@ class SalusCloudGateway:
 
                 _LOGGER.debug("Using gateway device_code for MQTT: %s", self._gateway_device_code)
 
+            # Create event for waiting on connection
+            self._mqtt_connect_event = asyncio.Event()
+            self._mqtt_connect_rc = None
+
             # Create MQTT client with WebSocket
             # Client ID format: {GATEWAY_DEVICE_CODE}-{RANDOM_UUID}
             # Example: SAU2AG1_GW-001E5E044354-a1b2c3d4-e5f6-4789-a0b1-c2d3e4f5g6h7
@@ -550,22 +558,39 @@ class SalusCloudGateway:
 
             # Add MQTT callbacks for debugging
             def on_connect(client, userdata, flags, rc):
+                self._mqtt_connect_rc = rc
                 if rc == 0:
-                    _LOGGER.info("MQTT on_connect callback: Successfully connected (rc=%s)", rc)
+                    _LOGGER.info("MQTT connected successfully (rc=0)")
+                    self._mqtt_connected = True
                 else:
-                    _LOGGER.error("MQTT on_connect callback: Connection failed (rc=%s)", rc)
+                    _LOGGER.error("MQTT connection failed (rc=%s): %s", rc, mqtt.connack_string(rc))
+                    self._mqtt_connected = False
+                # Signal that connection attempt is complete
+                if self._mqtt_connect_event:
+                    import asyncio
+                    loop = asyncio.get_event_loop()
+                    loop.call_soon_threadsafe(self._mqtt_connect_event.set)
 
             def on_disconnect(client, userdata, rc):
-                _LOGGER.warning("MQTT on_disconnect callback: Disconnected (rc=%s)", rc)
+                _LOGGER.warning("MQTT disconnected (rc=%s): %s", rc, mqtt.connack_string(rc) if rc > 0 else "Clean disconnect")
+                self._mqtt_connected = False
 
             def on_log(client, userdata, level, buf):
-                _LOGGER.debug("MQTT log: %s", buf)
+                # Map paho-mqtt log levels to Python logging levels
+                if level == mqtt.MQTT_LOG_ERR:
+                    _LOGGER.error("MQTT: %s", buf)
+                elif level == mqtt.MQTT_LOG_WARNING:
+                    _LOGGER.warning("MQTT: %s", buf)
+                elif level == mqtt.MQTT_LOG_NOTICE:
+                    _LOGGER.info("MQTT: %s", buf)
+                else:
+                    _LOGGER.debug("MQTT: %s", buf)
 
             def on_socket_open(client, userdata, sock):
-                _LOGGER.info("MQTT on_socket_open callback: WebSocket opened")
+                _LOGGER.debug("MQTT WebSocket opened")
 
             def on_socket_close(client, userdata, sock):
-                _LOGGER.info("MQTT on_socket_close callback: WebSocket closed")
+                _LOGGER.debug("MQTT WebSocket closed")
 
             self._mqtt_client.on_connect = on_connect
             self._mqtt_client.on_disconnect = on_disconnect
@@ -573,67 +598,127 @@ class SalusCloudGateway:
             self._mqtt_client.on_socket_open = on_socket_open
             self._mqtt_client.on_socket_close = on_socket_close
 
+            # Enable debug logging for MQTT
+            self._mqtt_client.enable_logger(_LOGGER)
+
             # Connect in a thread (paho-mqtt is synchronous)
             def connect_sync():
-                # Set TLS (required for wss://) - must be in thread to avoid blocking
-                _LOGGER.info("Setting up TLS for WebSocket connection")
-                self._mqtt_client.tls_set()
+                try:
+                    # Set TLS (required for wss://) - must be in thread to avoid blocking
+                    _LOGGER.debug("Setting up TLS for WebSocket connection")
+                    import ssl
+                    # Use default SSL context with proper cert verification
+                    self._mqtt_client.tls_set(
+                        cert_reqs=ssl.CERT_REQUIRED,
+                        tls_version=ssl.PROTOCOL_TLSv1_2
+                    )
 
-                # Parse URL to get host and path with query params
-                import urllib.parse
-                parsed = urllib.parse.urlparse(websocket_url)
+                    # Parse URL to get host and path with query params
+                    import urllib.parse
+                    parsed = urllib.parse.urlparse(websocket_url)
 
-                _LOGGER.info("Setting WebSocket options - host: %s, path: %s", parsed.hostname, parsed.path)
-                _LOGGER.debug("Query params length: %d chars", len(parsed.query))
+                    _LOGGER.debug("Setting WebSocket options - host: %s, path: %s", parsed.hostname, parsed.path)
+                    _LOGGER.debug("Query params length: %d chars", len(parsed.query))
 
-                # Set the full path with query parameters and WebSocket protocol
-                self._mqtt_client.ws_set_options(
-                    path=f"{parsed.path}?{parsed.query}",
-                    headers={
-                        "Sec-WebSocket-Protocol": "mqtt"
-                    }
-                )
+                    # Set the full path with query parameters
+                    # NOTE: AWS IoT requires the WebSocket subprotocol to be "mqtt"
+                    self._mqtt_client.ws_set_options(
+                        path=f"{parsed.path}?{parsed.query}",
+                        headers={
+                            "Sec-WebSocket-Protocol": "mqtt"
+                        }
+                    )
 
-                # Connect (default port 443 for wss)
-                _LOGGER.info("Calling MQTT connect() to %s:443", parsed.hostname)
-                self._mqtt_client.connect(parsed.hostname, 443, 60)
-                _LOGGER.info("MQTT connect() returned, starting loop")
-                self._mqtt_client.loop_start()
-                _LOGGER.info("MQTT loop_start() completed")
+                    # Connect (default port 443 for wss)
+                    _LOGGER.info("Connecting to MQTT broker at %s:443", parsed.hostname)
+                    self._mqtt_client.connect(parsed.hostname, 443, keepalive=60)
+                    _LOGGER.debug("MQTT connect() call completed, starting network loop")
+                    self._mqtt_client.loop_start()
+                    _LOGGER.debug("MQTT loop_start() completed")
 
-            _LOGGER.info("Starting MQTT connection in background thread")
+                except Exception as e:
+                    _LOGGER.error("Exception in MQTT connect_sync: %s", e, exc_info=True)
+                    # Signal event even on error so we don't hang
+                    if self._mqtt_connect_event:
+                        import asyncio
+                        loop = asyncio.get_event_loop()
+                        loop.call_soon_threadsafe(self._mqtt_connect_event.set)
+                    raise
+
+            _LOGGER.debug("Starting MQTT connection in background thread")
             await asyncio.to_thread(connect_sync)
 
-            # Give it a moment for callbacks to fire
-            _LOGGER.info("Waiting for MQTT connection to establish...")
-            await asyncio.sleep(2)
+            # Wait for connection callback (with timeout)
+            _LOGGER.debug("Waiting for MQTT connection callback...")
+            try:
+                await asyncio.wait_for(self._mqtt_connect_event.wait(), timeout=10.0)
+            except asyncio.TimeoutError:
+                _LOGGER.error("MQTT connection timeout - no callback received within 10 seconds")
+                raise SalusCloudConnectionError("MQTT connection timeout")
 
-            self._mqtt_connected = True
+            # Check connection result
+            if self._mqtt_connect_rc != 0:
+                error_msg = f"MQTT connection failed with code {self._mqtt_connect_rc}"
+                if self._mqtt_connect_rc:
+                    error_msg += f": {mqtt.connack_string(self._mqtt_connect_rc)}"
+                _LOGGER.error(error_msg)
+                raise SalusCloudConnectionError(error_msg)
 
-            _LOGGER.info("MQTT connection process completed")
+            _LOGGER.info("MQTT connection established successfully")
 
         except Exception as err:
-            _LOGGER.error("Failed to connect to AWS IoT MQTT: %s", err)
+            _LOGGER.error("Failed to connect to AWS IoT MQTT: %s", err, exc_info=True)
             self._mqtt_connected = False
+            if self._mqtt_client:
+                try:
+                    self._mqtt_client.loop_stop()
+                except:
+                    pass
             raise SalusCloudConnectionError(f"Failed to connect to AWS IoT MQTT: {err}") from err
 
     async def update_device_shadow(
-        self, device_code: str, properties: dict[str, Any]
+        self, device_code: str, properties: dict[str, Any], device_index: str | None = None
     ) -> None:
-        """Update device shadow via AWS IoT MQTT."""
+        """Update device shadow via AWS IoT MQTT.
+
+        Args:
+            device_code: Device code (thing name in AWS IoT)
+            properties: Properties to update
+            device_index: Device index in shadow (if None, will try to fetch it)
+        """
         try:
             _LOGGER.info("Updating device shadow for %s", device_code)
 
             # Ensure MQTT is connected
             await self._ensure_mqtt_connected()
 
+            # If device_index not provided, try to get current shadow to find it
+            if device_index is None:
+                _LOGGER.debug("Device index not provided, fetching current shadow")
+                try:
+                    shadows = await self.get_device_shadows([device_code])
+                    if device_code in shadows:
+                        shadow = shadows[device_code]
+                        reported = shadow.get("state", {}).get("reported", {})
+                        # Find device index from reported state
+                        for key, value in reported.items():
+                            if isinstance(value, dict) and "properties" in value:
+                                device_index = key
+                                _LOGGER.debug("Found device index from shadow: %s", device_index)
+                                break
+                except Exception as e:
+                    _LOGGER.warning("Could not fetch device index from shadow: %s", e)
+
+                # Fallback to default if still not found
+                if device_index is None:
+                    device_index = "11"
+                    _LOGGER.warning("Using default device index '11' - this may not work for all devices")
+
             # Create shadow update payload
             shadow_update = {
                 "state": {
                     "desired": {
-                        # Find device index from device_code (usually the last part)
-                        # For now, we'll use "11" as seen in the HAR file
-                        "11": {
+                        device_index: {
                             "properties": properties
                         }
                     }
@@ -644,27 +729,29 @@ class SalusCloudGateway:
             topic = f"$aws/things/{device_code}/shadow/update"
             payload = json.dumps(shadow_update)
 
-            _LOGGER.debug("Publishing to topic %s: %s", topic, payload)
+            _LOGGER.debug("Publishing to topic %s with device_index %s: %s", topic, device_index, payload)
 
             # Publish in a thread (paho-mqtt is synchronous)
             def publish_sync():
+                if not self._mqtt_client:
+                    raise SalusCloudConnectionError("MQTT client not initialized")
                 result = self._mqtt_client.publish(topic, payload, qos=1)
                 result.wait_for_publish()
                 if result.rc != mqtt.MQTT_ERR_SUCCESS:
-                    raise SalusCloudConnectionError(f"MQTT publish failed with code {result.rc}")
+                    raise SalusCloudConnectionError(f"MQTT publish failed with code {result.rc}: {mqtt.error_string(result.rc)}")
 
             await asyncio.to_thread(publish_sync)
 
-            _LOGGER.info("Successfully published shadow update for %s", device_code)
+            _LOGGER.info("Successfully published shadow update for %s (index: %s)", device_code, device_index)
 
         except Exception as err:
-            _LOGGER.error("Failed to update device shadow: %s", err)
+            _LOGGER.error("Failed to update device shadow: %s", err, exc_info=True)
             # Reset MQTT connection on error
             self._mqtt_connected = False
             raise SalusCloudConnectionError(f"Failed to update device shadow: {err}") from err
 
     async def set_temperature(
-        self, device_code: str, temperature: float
+        self, device_code: str, temperature: float, device_index: str | None = None
     ) -> None:
         """Set target temperature for a thermostat."""
         _LOGGER.info("Setting temperature for %s to %.1f°C", device_code, temperature)
@@ -678,10 +765,10 @@ class SalusCloudGateway:
             "ep9:sIT600TH:SetSystemMode": 4,  # Heat mode
         }
 
-        await self.update_device_shadow(device_code, properties)
+        await self.update_device_shadow(device_code, properties, device_index)
 
     async def set_hold_mode(
-        self, device_code: str, mode: int
+        self, device_code: str, mode: int, device_index: str | None = None
     ) -> None:
         """Set thermostat hold mode.
 
@@ -691,6 +778,7 @@ class SalusCloudGateway:
                 0 = Auto/Schedule mode (follow schedule)
                 2 = Manual Hold mode (maintain set temperature)
                 7 = Standby/Frost mode (frost protection)
+            device_index: Device index in shadow (optional)
         """
         _LOGGER.info("Setting hold mode for %s to %d", device_code, mode)
 
@@ -698,10 +786,10 @@ class SalusCloudGateway:
             "ep9:sIT600TH:SetHoldType": mode,
         }
 
-        await self.update_device_shadow(device_code, properties)
+        await self.update_device_shadow(device_code, properties, device_index)
 
     async def set_switch_state(
-        self, device_code: str, state: bool
+        self, device_code: str, state: bool, device_index: str | None = None
     ) -> None:
         """Turn switch/relay on or off."""
         _LOGGER.info("Setting switch %s to %s", device_code, "ON" if state else "OFF")
@@ -710,7 +798,7 @@ class SalusCloudGateway:
             "ep9:sOnOffS:SetOnOff": 1 if state else 0
         }
 
-        await self.update_device_shadow(device_code, properties)
+        await self.update_device_shadow(device_code, properties, device_index)
 
     async def update_gateway_shadow(
         self, gateway_code: str, properties: dict[str, Any]

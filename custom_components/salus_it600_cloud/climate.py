@@ -296,14 +296,37 @@ class SalusCloudClimate(CoordinatorEntity[SalusCloudCoordinator], ClimateEntity)
             raise HomeAssistantError(f"Failed to set preset mode: {err}") from err
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        """Set new HVAC mode."""
+        """Set new HVAC mode.
+
+        Maps HVAC modes to preset modes:
+        - OFF → Away/Frost mode (HoldType=7)
+        - HEAT → Schedule mode (HoldType=0)
+        """
         _LOGGER.info("Setting HVAC mode for %s to %s", self._attr_name, hvac_mode)
 
-        # For now, just log - HVAC mode control can be implemented later if needed
-        # The main use case is temperature control
-        _LOGGER.warning("HVAC mode control not yet implemented")
-        from homeassistant.exceptions import HomeAssistantError
-        raise HomeAssistantError("HVAC mode control not yet implemented")
+        # Map HVAC mode to HoldType
+        if hvac_mode == HVACMode.OFF:
+            hold_type = 7  # Frost/Away mode
+            mode_name = "frost/away"
+        elif hvac_mode == HVACMode.HEAT:
+            hold_type = 0  # Schedule mode
+            mode_name = "schedule"
+        else:
+            _LOGGER.error("Unsupported HVAC mode: %s", hvac_mode)
+            from homeassistant.exceptions import HomeAssistantError
+            raise HomeAssistantError(f"Unsupported HVAC mode: {hvac_mode}")
+
+        try:
+            _LOGGER.debug("Setting HVAC mode %s → HoldType %d (%s)", hvac_mode, hold_type, mode_name)
+            await self.coordinator.gateway.set_hold_mode(self._device_code, hold_type)
+
+            # Request immediate coordinator refresh to get updated state
+            await self.coordinator.async_request_refresh()
+
+        except Exception as err:
+            _LOGGER.error("Failed to set HVAC mode: %s", err)
+            from homeassistant.exceptions import HomeAssistantError
+            raise HomeAssistantError(f"Failed to set HVAC mode: {err}") from err
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:

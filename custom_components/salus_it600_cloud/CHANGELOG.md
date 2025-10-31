@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2025-10-31
+
+### Fixed
+- 🐛 **MQTT WebSocket connection to AWS IoT**
+  - Fixed "WebSocket handshake error, connection not upgraded"
+  - Added proper connection synchronization using `asyncio.Event`
+  - Improved connection timeout handling (10 seconds)
+  - Added connection result verification (rc code check)
+  - Better TLS/SSL configuration with cert verification
+- 🔧 **Device index detection**
+  - Fixed hardcoded device index "11" issue
+  - Device index now automatically detected from shadow data
+  - Stored as `_shadow_device_index` during device initialization
+  - Fallback to "11" if detection fails
+- 📝 **Debug logging improvements**
+  - Extensive MQTT operation logging
+  - Device index information in logs
+  - WebSocket URL details (first 100 chars)
+  - Error tracebacks for better debugging
+  - Proper log level mapping for paho-mqtt
+
+### Changed
+- Gateway functions now accept optional `device_index` parameter:
+  - `set_temperature(device_code, temperature, device_index=None)`
+  - `set_hold_mode(device_code, mode, device_index=None)`
+  - `set_switch_state(device_code, state, device_index=None)`
+- MQTT connection now waits for actual connection before proceeding
+- Better error messages with more context
+
+### Technical Details
+- Added `_mqtt_connect_event` and `_mqtt_connect_rc` for connection tracking
+- Improved `_ensure_mqtt_connected()` with proper async/sync coordination
+- Enhanced `update_device_shadow()` with automatic device index discovery
+- Better exception handling with full tracebacks
+
 ## [1.0.0] - 2025-01-XX
 
 ### Added
