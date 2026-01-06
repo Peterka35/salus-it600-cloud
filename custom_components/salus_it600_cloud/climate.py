@@ -191,6 +191,22 @@ class SalusCloudClimate(CoordinatorEntity[SalusCloudCoordinator], ClimateEntity)
         return None
 
     @property
+    def current_humidity(self) -> float | None:
+        """Return the current humidity."""
+
+        data = self.device_data
+
+        # First, try shadow properties (from device_shadows API)
+        shadow_props = data.get("_shadow_properties", {})
+        if shadow_props:
+            # Look for HeatingSetpoint_x100 in shadow properties
+            humidity_x100 = shadow_props.get("ep9:sIT600TH:SunnySetpoint_x100")
+            if humidity_x100 is not None:
+                return humidity_x100
+
+        return None
+
+    @property
     def hvac_mode(self) -> HVACMode:
         """Return current HVAC mode."""
         data = self.device_data
