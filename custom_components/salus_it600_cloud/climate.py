@@ -20,6 +20,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import ATTR_DEVICE_ID, ATTR_GATEWAY_ID, ATTR_MODEL, DOMAIN
 from .coordinator import SalusCloudCoordinator
+from .status_d import decode_status_d_humidity, get_status_d
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -241,6 +242,9 @@ class SalusCloudClimate(CoordinatorEntity[SalusCloudCoordinator], ClimateEntity)
         shadow_value = _extract_humidity_from_shadow(shadow_props)
         if shadow_value is not None:
             return shadow_value
+        status_value = decode_status_d_humidity(get_status_d(shadow_props))
+        if status_value is not None:
+            return status_value
 
         # Fallback to other possible fields
         for field in ["humidity", "current_humidity"]:

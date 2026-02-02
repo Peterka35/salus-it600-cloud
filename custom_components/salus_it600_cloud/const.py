@@ -31,3 +31,8 @@ ATTR_DEVICE_ID = "device_id"
 ATTR_GATEWAY_ID = "gateway_id"
 ATTR_MODEL = "model"
 ATTR_DEVICE_CODE = "device_code"
+
+# Status_d parsing
+STATUS_D_KEY = "ep9:sIT600TH:Status_d"
+STATUS_D_HUMIDITY_OFFSET = 24
+STATUS_D_HUMIDITY_MODELS = ("SQ610",)

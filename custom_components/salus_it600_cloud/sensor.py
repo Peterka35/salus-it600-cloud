@@ -17,6 +17,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import SalusCloudCoordinator
+from .status_d import decode_status_d_humidity, get_status_d, has_status_d_humidity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -84,6 +85,7 @@ def _has_humidity(device_data: dict[str, Any]) -> bool:
         "humidity" in device_data
         or ("status" in device_data and "humidity" in device_data["status"])
         or _shadow_has_humidity(shadow_props)
+        or has_status_d_humidity(device_data)
     )
 
 
@@ -264,6 +266,9 @@ class SalusCloudHumiditySensor(SalusCloudSensor):
         shadow_value = _extract_humidity_from_shadow(shadow_props)
         if shadow_value is not None:
             return shadow_value
+        status_value = decode_status_d_humidity(get_status_d(shadow_props))
+        if status_value is not None:
+            return status_value
 
         # Try different field names
         for field in ["humidity", "current_humidity"]:
