@@ -460,6 +460,24 @@ class SalusCloudGateway:
                                 device["_shadow_model"] = value.get("model")
                                 device["_shadow_device_index"] = key  # Store device index for updates!
                                 _LOGGER.debug("Device %s uses shadow index: %s", device_code, key)
+                                if _LOGGER.isEnabledFor(logging.DEBUG):
+                                    shadow_keys = list(value["properties"].keys())
+                                    humidity_keys = [
+                                        prop_key for prop_key in shadow_keys
+                                        if "humidity" in prop_key.lower()
+                                    ]
+                                    if humidity_keys:
+                                        _LOGGER.debug(
+                                            "Device %s shadow humidity keys: %s",
+                                            device_code,
+                                            humidity_keys,
+                                        )
+                                    else:
+                                        _LOGGER.debug(
+                                            "Device %s shadow keys: %s",
+                                            device_code,
+                                            shadow_keys,
+                                        )
                                 break
 
                         # Store full shadow for reference

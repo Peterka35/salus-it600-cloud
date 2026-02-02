@@ -85,6 +85,47 @@ def _is_climate_device(device_data: dict[str, Any]) -> bool:
     )
 
 
+def _normalize_humidity(value: Any) -> float | None:
+    """Normalize humidity value to percentage."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped.endswith("%"):
+            stripped = stripped[:-1].strip()
+        try:
+            value = float(stripped)
+        except ValueError:
+            return None
+    if isinstance(value, (int, float)):
+        if value > 100:
+            return float(value) / 100.0
+        return float(value)
+    return None
+
+
+def _extract_humidity_from_shadow(shadow_props: dict[str, Any]) -> float | None:
+    """Extract humidity value from shadow properties if present."""
+    if not isinstance(shadow_props, dict) or not shadow_props:
+        return None
+
+    candidates = [
+        "ep9:sIT600TH:LocalHumidity",
+        "ep9:sIT600TH:LocalHumidity_x100",
+        "ep9:sIT600TH:Humidity",
+        "ep9:sIT600TH:Humidity_x100",
+    ]
+    for key in candidates:
+        if key in shadow_props:
+            return _normalize_humidity(shadow_props.get(key))
+
+    for key, value in shadow_props.items():
+        if "humidity" in key.lower():
+            return _normalize_humidity(value)
+
+    return None
+
+
 class SalusCloudClimate(CoordinatorEntity[SalusCloudCoordinator], ClimateEntity):
     """Representation of a Salus iT600 Cloud climate device."""
 
@@ -187,6 +228,29 @@ class SalusCloudClimate(CoordinatorEntity[SalusCloudCoordinator], ClimateEntity)
                 if isinstance(temp, int) and temp > 100:
                     return temp / 100.0
                 return float(temp)
+
+        return None
+
+    @property
+    def current_humidity(self) -> float | None:
+        """Return the current humidity if available."""
+        data = self.device_data
+
+        # Prefer shadow properties if available
+        shadow_props = data.get("_shadow_properties", {})
+        shadow_value = _extract_humidity_from_shadow(shadow_props)
+        if shadow_value is not None:
+            return shadow_value
+
+        # Fallback to other possible fields
+        for field in ["humidity", "current_humidity"]:
+            if field in data:
+                return _normalize_humidity(data[field])
+
+        # Try nested status
+        if "status" in data and isinstance(data["status"], dict):
+            if "humidity" in data["status"]:
+                return _normalize_humidity(data["status"]["humidity"])
 
         return None
 

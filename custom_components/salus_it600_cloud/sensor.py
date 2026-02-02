@@ -79,10 +79,60 @@ def _has_temperature(device_data: dict[str, Any]) -> bool:
 
 def _has_humidity(device_data: dict[str, Any]) -> bool:
     """Check if device has humidity sensor."""
+    shadow_props = device_data.get("_shadow_properties", {})
     return (
         "humidity" in device_data
         or ("status" in device_data and "humidity" in device_data["status"])
+        or _shadow_has_humidity(shadow_props)
     )
+
+
+def _shadow_has_humidity(shadow_props: dict[str, Any]) -> bool:
+    """Check if shadow properties include humidity data."""
+    if not isinstance(shadow_props, dict):
+        return False
+    return any("humidity" in key.lower() for key in shadow_props.keys())
+
+
+def _normalize_humidity(value: Any) -> float | None:
+    """Normalize humidity value to percentage."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped.endswith("%"):
+            stripped = stripped[:-1].strip()
+        try:
+            value = float(stripped)
+        except ValueError:
+            return None
+    if isinstance(value, (int, float)):
+        if value > 100:
+            return float(value) / 100.0
+        return float(value)
+    return None
+
+
+def _extract_humidity_from_shadow(shadow_props: dict[str, Any]) -> float | None:
+    """Extract humidity value from shadow properties if present."""
+    if not isinstance(shadow_props, dict) or not shadow_props:
+        return None
+
+    candidates = [
+        "ep9:sIT600TH:LocalHumidity",
+        "ep9:sIT600TH:LocalHumidity_x100",
+        "ep9:sIT600TH:Humidity",
+        "ep9:sIT600TH:Humidity_x100",
+    ]
+    for key in candidates:
+        if key in shadow_props:
+            return _normalize_humidity(shadow_props.get(key))
+
+    for key, value in shadow_props.items():
+        if "humidity" in key.lower():
+            return _normalize_humidity(value)
+
+    return None
 
 
 def _has_battery(device_data: dict[str, Any]) -> bool:
@@ -208,22 +258,22 @@ class SalusCloudHumiditySensor(SalusCloudSensor):
     def native_value(self) -> float | None:
         """Return the humidity value."""
         data = self.device_data
+        shadow_props = data.get("_shadow_properties", {})
+
+        # Prefer shadow properties if available
+        shadow_value = _extract_humidity_from_shadow(shadow_props)
+        if shadow_value is not None:
+            return shadow_value
 
         # Try different field names
         for field in ["humidity", "current_humidity"]:
             if field in data:
-                humidity = data[field]
-                if isinstance(humidity, int) and humidity > 100:
-                    return humidity / 100.0
-                return float(humidity)
+                return _normalize_humidity(data[field])
 
         # Try nested status
         if "status" in data and isinstance(data["status"], dict):
             if "humidity" in data["status"]:
-                humidity = data["status"]["humidity"]
-                if isinstance(humidity, int) and humidity > 100:
-                    return humidity / 100.0
-                return float(humidity)
+                return _normalize_humidity(data["status"]["humidity"])
 
         return None
 
