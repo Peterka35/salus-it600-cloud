@@ -20,6 +20,9 @@ from .coordinator import SalusCloudCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
+# Known thermostat/climate model prefixes (must match climate.py)
+_CLIMATE_MODEL_PREFIXES = ["HTRP-RF", "TS600", "VS10", "VS20", "SQ610", "FC600"]
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -63,13 +66,35 @@ async def async_setup_entry(
                 )
             )
 
+        # Climate device temperature sensor (for graphing/statistics)
+        if _is_climate_device(device_data):
+            entities.append(
+                SalusCloudClimateTemperatureSensor(
+                    coordinator,
+                    device_id,
+                    device_data,
+                )
+            )
+
     async_add_entities(entities)
+
+
+def _is_climate_device(device_data: dict[str, Any]) -> bool:
+    """Determine if device is a climate/thermostat device."""
+    device_type = (device_data.get("type") or "").lower()
+    model = (device_data.get("model") or "").upper()
+
+    return (
+        device_type in ("thermostat", "climate")
+        or any(model.startswith(prefix) for prefix in _CLIMATE_MODEL_PREFIXES)
+        or "thermostat" in (device_data.get("name") or "").lower()
+    )
 
 
 def _has_temperature(device_data: dict[str, Any]) -> bool:
     """Check if device has temperature sensor."""
     # For standalone temperature sensors (not thermostats)
-    device_type = device_data.get("type", "").lower()
+    device_type = (device_data.get("type") or "").lower()
     return (
         device_type == "temperature_sensor"
         or device_type == "sensor"
@@ -259,5 +284,49 @@ class SalusCloudBatterySensor(SalusCloudSensor):
             for field in ["battery", "battery_level"]:
                 if field in data["status"]:
                     return float(data["status"][field])
+
+        return None
+
+
+class SalusCloudClimateTemperatureSensor(SalusCloudSensor):
+    """Current temperature sensor for climate devices.
+
+    Automatically exposes the thermostat's current temperature as a
+    standalone sensor entity so it can be tracked in Home Assistant's
+    long-term statistics and graphed in history/energy dashboards.
+    """
+
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+
+    def __init__(
+        self,
+        coordinator: SalusCloudCoordinator,
+        device_id: str,
+        device_data: dict[str, Any],
+    ) -> None:
+        """Initialize the climate temperature sensor."""
+        super().__init__(coordinator, device_id, device_data, "current_temperature")
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the current temperature from the thermostat."""
+        data = self.device_data
+
+        # Read from shadow properties (same source as climate entity)
+        shadow_props = data.get("_shadow_properties", {})
+        if shadow_props:
+            temp_x100 = shadow_props.get("ep9:sIT600TH:LocalTemperature_x100")
+            if temp_x100 is not None:
+                return temp_x100 / 100.0
+
+        # Fallback to other possible fields
+        for field in ["current_temperature", "LocalTemperature", "temperature"]:
+            if field in data:
+                temp = data[field]
+                if isinstance(temp, int) and temp > 100:
+                    return temp / 100.0
+                return float(temp)
 
         return None

@@ -54,13 +54,17 @@ class SalusCloudCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Convert list to dict with device_id as key
             devices_dict = {}
             for device in devices:
-                # Use appropriate ID field
-                device_id = device.get("id") or device.get("device_id")
+                # Use appropriate ID field - try id, device_id, then device_code
+                device_id = device.get("id") or device.get("device_id") or device.get("device_code")
                 if device_id:
                     devices_dict[device_id] = device
+                    _LOGGER.debug("Storing device: id=%s, name=%s, model=%s",
+                                device_id, device.get("name"), device.get("model"))
+                else:
+                    _LOGGER.warning("Device has no id/device_id/device_code: %s", device.get("name"))
 
             self._devices = devices_dict
-            _LOGGER.debug("Stored %d devices", len(devices_dict))
+            _LOGGER.info("Coordinator stored %d devices in data dict", len(devices_dict))
             return devices_dict
 
         except SalusCloudConnectionError as err:

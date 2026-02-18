@@ -52,11 +52,26 @@ async def async_setup_entry(
 
     entities = []
 
+    # Handle case where coordinator.data might be None or empty
+    data = coordinator.data or {}
+    _LOGGER.info("Setting up climate entities. Coordinator has %d devices", len(data))
+
+    if not data:
+        _LOGGER.warning("No devices available from coordinator - skipping climate entity setup")
+
     # Parse devices and create climate entities
-    for device_id, device_data in coordinator.data.items():
+    for device_id, device_data in data.items():
+        model = device_data.get("model", "")
+        name = device_data.get("name", "")
+        device_type = device_data.get("type", "")
+
         # Check if this is a thermostat/climate device
-        # This logic will need to be adjusted based on actual API response structure
-        if _is_climate_device(device_data):
+        is_climate = _is_climate_device(device_data)
+        _LOGGER.debug("Device %s: model=%s, type=%s, name=%s, is_climate=%s",
+                     device_id, model, device_type, name, is_climate)
+
+        if is_climate:
+            _LOGGER.info("Creating climate entity for: %s (model: %s)", name, model)
             entities.append(
                 SalusCloudClimate(
                     coordinator,
@@ -65,6 +80,7 @@ async def async_setup_entry(
                 )
             )
 
+    _LOGGER.info("Created %d climate entities", len(entities))
     async_add_entities(entities)
 
 
@@ -72,16 +88,17 @@ def _is_climate_device(device_data: dict[str, Any]) -> bool:
     """Determine if device is a climate device."""
     # Based on the local implementation, we look for specific device types
     # This may need adjustment based on cloud API response
-    device_type = device_data.get("type", "").lower()
-    model = device_data.get("model", "").upper()
+    device_type = (device_data.get("type") or "").lower()
+    model = (device_data.get("model") or "").upper()
 
-    # Check for known thermostat models
+    # Check for known thermostat models (using prefix matching)
+    # SQ610 covers SQ610, SQ610NH (hardwired), SQ610RF (wireless), etc.
     climate_models = ["HTRP-RF", "TS600", "VS10", "VS20", "SQ610", "FC600"]
 
     return (
         device_type in ["thermostat", "climate"]
         or any(model.startswith(cm) for cm in climate_models)
-        or "thermostat" in device_data.get("name", "").lower()
+        or "thermostat" in (device_data.get("name") or "").lower()
     )
 
 

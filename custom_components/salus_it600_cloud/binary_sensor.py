@@ -49,8 +49,8 @@ async def async_setup_entry(
 
 def _is_binary_sensor_device(device_data: dict[str, Any]) -> bool:
     """Determine if device is a binary sensor."""
-    device_type = device_data.get("type", "").lower()
-    model = device_data.get("model", "").upper()
+    device_type = (device_data.get("type") or "").lower()
+    model = (device_data.get("model") or "").upper()
 
     # Known binary sensor types
     binary_types = ["door_sensor", "window_sensor", "motion_sensor", "binary_sensor"]
@@ -60,8 +60,8 @@ def _is_binary_sensor_device(device_data: dict[str, Any]) -> bool:
 
 def _get_device_class(device_data: dict[str, Any]) -> BinarySensorDeviceClass | None:
     """Determine binary sensor device class."""
-    device_type = device_data.get("type", "").lower()
-    model = device_data.get("model", "").upper()
+    device_type = (device_data.get("type") or "").lower()
+    model = (device_data.get("model") or "").upper()
 
     if "door" in device_type or "window" in device_type or model.startswith("WLS"):
         return BinarySensorDeviceClass.DOOR

@@ -416,24 +416,42 @@ class SalusCloudGateway:
                 details = await self.get_gateway_details(gateway_id)
 
                 # The API returns devices in the "items" array
+                # Items can be devices directly, or groups containing devices
                 if "items" in details:
-                    _LOGGER.debug("Found %d items for gateway %s", len(details["items"]), gateway_id)
-                    for item in details["items"]:
-                        # Skip rules and one_touch_rules, only process actual devices
+                    _LOGGER.info("Found %d top-level items for gateway %s", len(details["items"]), gateway_id)
+
+                    def process_item(item: dict[str, Any], gw_id: str) -> None:
+                        """Process a single item, recursing into groups."""
                         item_type = item.get("dashboard_attributes", {}).get("type")
-                        if item_type in ["one_touch_rule", None]:
-                            # Check if it has rule_trigger_key (indicates it's a rule)
-                            if "rule_trigger_key" in item:
-                                continue
 
-                        # Add gateway ID to each device
-                        item["_gateway_id"] = gateway_id
-                        devices.append(item)
+                        # If this is a group, recurse into its items
+                        if item_type == "group" and "items" in item:
+                            _LOGGER.debug("Processing group '%s' with %d items",
+                                        item.get("name", "Unknown"), len(item["items"]))
+                            for nested_item in item["items"]:
+                                process_item(nested_item, gw_id)
+                            return
 
-                        # Collect device codes for shadow fetch
+                        # Skip rules
+                        if item_type == "one_touch_rule" or "rule_trigger_key" in item:
+                            return
+
+                        # Skip gateway itself (already have gateway info)
+                        if item_type == "gateway":
+                            return
+
+                        # Process as a device if it has a device_code
                         device_code = item.get("device_code")
                         if device_code:
+                            # Add gateway ID to each device
+                            item["_gateway_id"] = gw_id
+                            devices.append(item)
                             device_codes.append(device_code)
+                            _LOGGER.debug("Found device: %s (model: %s, type: %s)",
+                                        item.get("name"), item.get("model"), item.get("type"))
+
+                    for item in details["items"]:
+                        process_item(item, gateway_id)
 
             except Exception as err:
                 _LOGGER.error("Failed to get details for gateway %s: %s", gateway_id, err)
@@ -468,7 +486,7 @@ class SalusCloudGateway:
             except Exception as err:
                 _LOGGER.error("Failed to fetch device shadows: %s", err)
 
-        _LOGGER.debug("Found total of %d device(s)", len(devices))
+        _LOGGER.info("Found total of %d device(s) across all gateways", len(devices))
         return devices
 
     async def get_onetouch_rules(self) -> list[dict[str, Any]]:

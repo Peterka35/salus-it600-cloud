@@ -42,8 +42,8 @@ async def async_setup_entry(
 
 def _is_switch_device(device_data: dict[str, Any]) -> bool:
     """Determine if device is a switch."""
-    device_type = device_data.get("type", "").lower()
-    model = device_data.get("model", "").upper()
+    device_type = (device_data.get("type") or "").lower()
+    model = (device_data.get("model") or "").upper()
 
     # Known switch models from local API
     switch_models = ["RS600", "SPE600", "SR600"]
