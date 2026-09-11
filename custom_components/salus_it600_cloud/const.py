@@ -5,6 +5,8 @@ DOMAIN = "salus_it600_cloud"
 # Config flow
 CONF_EMAIL = "email"
 CONF_PASSWORD = "password"
+# Option: mode change of one thermostat is applied to all thermostats of its gateway
+CONF_SYNC_MODES = "sync_thermostat_modes"
 
 # AWS Cognito configuration
 AWS_REGION = "eu-central-1"
@@ -17,17 +19,24 @@ AWS_IOT_ENDPOINT = "a24u3z7zzwrtdl-ats.iot.eu-central-1.amazonaws.com"
 SERVICE_API_BASE_URL = "https://service-api.eu.premium.salusconnect.io/api/v1"
 COMPANY_CODE = "salus-eu"
 
-# Polling interval
+# Polling of device states (seconds)
 SCAN_INTERVAL_SECONDS = 30
+# While device state changes are pushed over MQTT, polling is only a safety net
+PUSH_SCAN_INTERVAL_SECONDS = 300
+# Gateways, devices and OneTouch rules change rarely and are re-read less often
+METADATA_REFRESH_SECONDS = 900
+# Entities of a device without state data for this long become unavailable
+STALE_AFTER_SECONDS = 600
+# Commanded state is shown until the device reports it, at most this long
+PENDING_TIMEOUT_SECONDS = 60
+# Without pushed state changes a command is confirmed by polling after this delay
+CONFIRM_REFRESH_DELAY_SECONDS = 10
 
-# Device types
-DEVICE_TYPE_CLIMATE = "climate"
-DEVICE_TYPE_SENSOR = "sensor"
-DEVICE_TYPE_SWITCH = "switch"
-DEVICE_TYPE_BINARY_SENSOR = "binary_sensor"
+# Shadow device index of the gateway itself and default index of other devices
+GATEWAY_SHADOW_INDEX = "000000000001"
+DEFAULT_SHADOW_INDEX = "11"
 
-# Attributes
-ATTR_DEVICE_ID = "device_id"
-ATTR_GATEWAY_ID = "gateway_id"
-ATTR_MODEL = "model"
-ATTR_DEVICE_CODE = "device_code"
+# Thermostat hold types
+HOLD_TYPE_SCHEDULE = 0
+HOLD_TYPE_MANUAL = 2
+HOLD_TYPE_STANDBY = 7

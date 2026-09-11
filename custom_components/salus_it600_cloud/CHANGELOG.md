@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-09-11
+
+### Added
+- **Thermostat mode synchronization** (integration option "Synchronize thermostat modes"): changing the mode
+  (off / schedule / manual / stand-by, including `climate.turn_on` / `climate.turn_off`) of one thermostat in
+  Home Assistant applies it to all thermostats of the same gateway at once. Target temperatures are not synchronized.
+- Device state changes pushed over AWS IoT MQTT (shadow documents); polling runs every 5 minutes as a safety net.
+  Falls back to polling every 30 seconds when AWS IoT does not allow the subscription.
+- `climate.turn_on` / `climate.turn_off` support.
+- Reauthentication flow when Salus Cloud rejects the password.
+- Test suite for API client, MQTT connection, device state tracking, coordinator and entities.
+
+### Fixed
+- Thermostats no longer show made-up `heat` / `manual` / no temperature for ~30 seconds when one Salus API call
+  fails; the last known state is kept and entities become unavailable only after 10 minutes without data.
+- API timeouts are reported as connection errors (previously empty error messages).
+- MQTT publish can no longer block forever; the previous MQTT client is always stopped before reconnecting.
+- Commanded state is shown immediately and a poll arriving before the device applies the command no longer reverts it.
+- Token validity is read from the token instead of assuming 3 hours.
+- Failed MQTT connection no longer reports a misleading "no current event loop" error.
+
+### Changed
+- Gateways, devices and OneTouch rules are cached and re-read every 15 minutes; regular polling fetches only device
+  states (1 API request instead of 3).
+- MQTT connection is established at startup and AWS credentials are renewed in the background, so commands are sent
+  immediately without looking up device index or gateway first.
+- API responses (containing personal data) are no longer logged.
+- Code split into `api.py` (REST), `mqtt.py` (AWS IoT), `state.py`, `coordinator.py` and `entity.py`; `gateway.py` removed.
+- paho-mqtt callback API version 2 (`paho-mqtt>=2.0.0`); devices link to the gateway with `via_device_id`.
+
 ## [1.0.3] - 2025-11-12
 
 ### Fixed

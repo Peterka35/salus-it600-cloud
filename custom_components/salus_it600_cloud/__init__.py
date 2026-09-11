@@ -1,22 +1,17 @@
 """The Salus iT600 Cloud integration."""
-from __future__ import annotations
 
-import logging
+from __future__ import annotations
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
+from .api import SalusCloudApi, SalusCloudAuthenticationError, SalusCloudConnectionError
 from .const import DOMAIN
 from .coordinator import SalusCloudCoordinator
-from .gateway import (
-    SalusCloudAuthenticationError,
-    SalusCloudConnectionError,
-    SalusCloudGateway,
-)
-
-_LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [
     Platform.CLIMATE,
@@ -26,75 +21,40 @@ PLATFORMS: list[Platform] = [
     Platform.BUTTON,
 ]
 
+type SalusConfigEntry = ConfigEntry[SalusCloudCoordinator]
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+
+async def async_setup_entry(hass: HomeAssistant, entry: SalusConfigEntry) -> bool:
     """Set up Salus iT600 Cloud from a config entry."""
-    email = entry.data[CONF_EMAIL]
-    password = entry.data[CONF_PASSWORD]
-
-    # Create gateway instance
-    gateway = SalusCloudGateway(email, password)
-
+    api = SalusCloudApi(entry.data[CONF_EMAIL], entry.data[CONF_PASSWORD], session=async_get_clientsession(hass))
     try:
-        # Authenticate
-        await gateway.authenticate()
-
-        # Create coordinator
-        coordinator = SalusCloudCoordinator(hass, gateway)
-
-        # Fetch initial data
-        await coordinator.async_config_entry_first_refresh()
-
-        # Store coordinator
-        hass.data.setdefault(DOMAIN, {})
-        hass.data[DOMAIN][entry.entry_id] = coordinator
-
-        # Register gateway device first (before other devices reference it)
-        from homeassistant.helpers import device_registry as dr
-        device_registry = dr.async_get(hass)
-
-        if coordinator.gateway_id:
-            device_registry.async_get_or_create(
-                config_entry_id=entry.entry_id,
-                identifiers={(DOMAIN, coordinator.gateway_id)},
-                manufacturer="Salus",
-                model="iT600 Gateway",
-                name=coordinator.gateway_name,
-            )
-            _LOGGER.info("Registered gateway device: %s", coordinator.gateway_name)
-
-        # Forward entry setup to platforms
-        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
-        return True
-
+        await api.authenticate()
     except SalusCloudAuthenticationError as err:
-        _LOGGER.error("Authentication failed: %s", err)
-        await gateway.close()
-        return False
-
+        raise ConfigEntryAuthFailed(str(err)) from err
     except SalusCloudConnectionError as err:
-        _LOGGER.error("Connection failed: %s", err)
-        await gateway.close()
-        raise ConfigEntryNotReady from err
+        raise ConfigEntryNotReady(str(err)) from err
 
-    except Exception as err:
-        _LOGGER.exception("Unexpected error during setup: %s", err)
-        await gateway.close()
-        raise ConfigEntryNotReady from err
+    coordinator = SalusCloudCoordinator(hass, entry, api)
+    await coordinator.async_config_entry_first_refresh()
+
+    # Gateways are registered first so devices can refer to them
+    device_registry = dr.async_get(hass)
+    for gateway in coordinator.gateways:
+        device = device_registry.async_get_or_create(
+            config_entry_id=entry.entry_id,
+            identifiers={(DOMAIN, gateway.id)},
+            manufacturer="Salus",
+            model="iT600 Gateway",
+            name=gateway.name,
+        )
+        coordinator.gateway_device_ids[gateway.id] = device.id
+
+    await coordinator.async_start_connection()
+    entry.runtime_data = coordinator
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload a config entry."""
-    # Unload platforms
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-
-    if unload_ok:
-        # Close gateway connection
-        coordinator: SalusCloudCoordinator = hass.data[DOMAIN][entry.entry_id]
-        await coordinator.gateway.close()
-
-        # Remove coordinator
-        hass.data[DOMAIN].pop(entry.entry_id)
-
-    return unload_ok
+async def async_unload_entry(hass: HomeAssistant, entry: SalusConfigEntry) -> bool:
+    """Unload a config entry (the coordinator stops its MQTT connection when the entry unloads)."""
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

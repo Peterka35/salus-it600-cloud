@@ -1,15 +1,16 @@
 {
   "domain": "salus_it600_cloud",
   "name": "Salus iT600 Cloud",
-  "codeowners": [],
+  "codeowners": ["@Peterka35"],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/yourusername/salus_it600_cloud",
+  "documentation": "https://github.com/Peterka35/salus-it600-cloud",
   "integration_type": "hub",
   "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/Peterka35/salus-it600-cloud/issues",
   "requirements": [
     "pycognito==2024.5.1",
-    "paho-mqtt>=1.6.1"
+    "paho-mqtt>=2.0.0"
   ],
-  "version": "1.0.3"
+  "version": "1.1.0"
 }

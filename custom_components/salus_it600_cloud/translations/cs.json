@@ -1,0 +1,44 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Salus iT600 Cloud",
+        "description": "Zadejte přihlašovací údaje k Salus Cloud",
+        "data": {
+          "email": "E-mail",
+          "password": "Heslo"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Salus iT600 Cloud",
+        "description": "Salus Cloud odmítl heslo účtu {email}. Zadejte aktuální heslo.",
+        "data": {
+          "password": "Heslo"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Neplatný e-mail nebo heslo",
+      "cannot_connect": "Nelze se připojit k Salus Cloud",
+      "no_devices": "Na účtu nebyla nalezena žádná zařízení",
+      "unknown": "Nastala neočekávaná chyba"
+    },
+    "abort": {
+      "already_configured": "Účet je již nastaven",
+      "reauth_successful": "Heslo bylo aktualizováno"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Salus iT600 Cloud",
+        "data": {
+          "sync_thermostat_modes": "Synchronizovat režim termostatů"
+        },
+        "data_description": {
+          "sync_thermostat_modes": "Změna režimu (vypnuto, časový plán, manuál, stand-by) jednoho termostatu v Home Assistantu se provede u všech termostatů na stejné bráně. Nastavené teploty se nesynchronizují."
+        }
+      }
+    }
+  }
+}
