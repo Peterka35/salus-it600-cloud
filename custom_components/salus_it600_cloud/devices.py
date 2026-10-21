@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-CLIMATE_MODELS = ("HTRP-RF", "TS600", "VS10", "VS20", "SQ610", "FC600")
+CLIMATE_MODELS = ("HTRP-RF", "TS600", "VS10", "VS20", "SQ610", "FC600", "IT800")
 SWITCH_MODELS = ("RS600", "SPE600", "SR600")
 
 

@@ -8,6 +8,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import SalusCloudCoordinator, SalusDevice
+from .properties import PropertyNames, property_names_of
 
 
 class SalusEntity(CoordinatorEntity[SalusCloudCoordinator]):
@@ -34,6 +35,11 @@ class SalusEntity(CoordinatorEntity[SalusCloudCoordinator]):
     def shadow_properties(self) -> dict[str, Any]:
         """Return current shadow properties of the device."""
         return self.device_data.get("_shadow_properties", {})
+
+    @property
+    def property_names(self) -> PropertyNames:
+        """Return shadow property names used by this device family."""
+        return property_names_of(self.device_data)
 
     @property
     def available(self) -> bool:

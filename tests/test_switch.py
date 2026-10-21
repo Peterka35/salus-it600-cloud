@@ -47,3 +47,22 @@ async def test_turn_on_relay_shows_state_immediately() -> None:
 
     assert connection.published == [(fixtures.RELAY_CODE, "11", {"ep9:sOnOffS:SetOnOff": 1})]
     assert entity.is_on is True
+
+
+async def test_it800_relay_uses_ep2_properties() -> None:
+    """A relay reporting ep2 properties is read and commanded with those names."""
+
+    api = FakeApi()
+    api.shadows[fixtures.RELAY_CODE] = fixtures.it800_relay_shadow(1)
+    coordinator, connection, _ = await create_coordinator(api)
+    entity = SalusCloudSwitch(coordinator, fixtures.RELAY_ID, coordinator.data[fixtures.RELAY_ID])
+    entity.hass = MagicMock()
+    entity.async_write_ha_state = MagicMock()
+
+    assert entity.is_on is True
+
+    with patch(CALL_LATER):
+        await entity.async_turn_off()
+
+    assert connection.published == [(fixtures.RELAY_CODE, "11", {"ep2:sOnOffS:SetOnOff": 0})]
+    assert entity.is_on is False

@@ -175,6 +175,46 @@ def relay_shadow(on_off: int) -> dict[str, Any]:
     }
 
 
+def it800_thermostat_shadow(
+    hold_type: int,
+    temperature_x100: int = 2200,
+    setpoint_x100: int = 2100,
+    system_mode: int = 4,
+) -> dict[str, Any]:
+    """Return shadow document of an IT800TX thermostat reporting ep1 properties."""
+
+    return {
+        "state": {
+            "desired": {"11": {"properties": {"ep1:sComm:SetHoldType": hold_type}}},
+            "reported": {
+                "11": {
+                    "properties": {
+                        "ep1:sComm:HoldType": hold_type,
+                        "ep1:sTherS:SystemMode": system_mode,
+                        "ep1:sTherS:RunningState": 0,
+                        "ep1:sTherS:LocalTemperature_x100": temperature_x100,
+                        "ep1:sTherS:HeatingSetpoint_x100": setpoint_x100,
+                        "ep1:sPowerS:BatteryVoltage_x10": 28,
+                    },
+                    "model": "IT800TX",
+                }
+            },
+        },
+        "version": 8800,
+        "timestamp": 1789140103,
+    }
+
+
+def it800_relay_shadow(on_off: int) -> dict[str, Any]:
+    """Return shadow document of a relay reporting ep2 properties."""
+
+    return {
+        "state": {"reported": {"11": {"properties": {"ep2:sOnOffS:OnOff": on_off}, "model": "SR600"}}},
+        "version": 120,
+        "timestamp": 1789140103,
+    }
+
+
 def device_shadows(shadows: dict[str, dict[str, Any]]) -> dict[str, Any]:
     """Return /devices/device_shadows response with stringified shadow payloads."""
 

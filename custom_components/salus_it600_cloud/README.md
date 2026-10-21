@@ -185,7 +185,7 @@ Temperature and mode changes are sent via MQTT to AWS IoT device shadows using t
 
 Automatically installed:
 - `pycognito==2024.5.1` - AWS Cognito authentication
-- `paho-mqtt>=1.6.1` - MQTT client for AWS IoT
+- `paho-mqtt>=2.0.0` - MQTT client for AWS IoT
 
 ## 🔍 Supported Devices
 
@@ -195,6 +195,7 @@ Automatically installed:
 - **VS10/VS20** - Wired thermostats
 - **SQ610** - Thermostat with humidity sensor
 - **FC600** - Fan coil thermostat
+- **IT800TX** - Thermostat reporting `ep1` shadow properties
 
 ### Switches/Relays
 - **RS600** - Relay switch

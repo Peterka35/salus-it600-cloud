@@ -30,6 +30,8 @@ from .const import (
     DOMAIN,
     GATEWAY_SHADOW_INDEX,
     HOLD_TYPE_MANUAL,
+    HOLD_TYPE_SCHEDULE,
+    HOLD_TYPE_STANDBY,
     METADATA_REFRESH_SECONDS,
     PENDING_TIMEOUT_SECONDS,
     PUSH_SCAN_INTERVAL_SECONDS,
@@ -38,12 +40,13 @@ from .const import (
 )
 from .devices import is_climate_device
 from .mqtt import SalusMqttConnection
+from .properties import detect_property_names, property_names_of
 from .state import DeviceStateStore, extract_reported
 
 _LOGGER = logging.getLogger(__name__)
 
 # Device from the Salus device list extended with "_gateway_id", "_shadow_properties",
-# "_shadow_device_index" and "_fresh"
+# "_property_names", "_shadow_device_index" and "_fresh"
 type SalusDevice = dict[str, Any]
 
 
@@ -160,9 +163,11 @@ class SalusCloudCoordinator(DataUpdateCoordinator[dict[str, SalusDevice]]):
             device_code = device.get("device_code")
             if not device_id or not device_code:
                 continue
+            properties = self._store.properties(device_code, now)
             data[device_id] = {
                 **device,
-                "_shadow_properties": self._store.properties(device_code, now),
+                "_shadow_properties": properties,
+                "_property_names": detect_property_names(properties),
                 "_shadow_device_index": self._store.index(device_code),
                 "_fresh": self._store.is_fresh(device_code, now),
             }
@@ -202,32 +207,62 @@ class SalusCloudCoordinator(DataUpdateCoordinator[dict[str, SalusDevice]]):
         self.push_available = available
         self.update_interval = timedelta(seconds=PUSH_SCAN_INTERVAL_SECONDS if available else SCAN_INTERVAL_SECONDS)
 
+    def _thermostat_targets(self, device: SalusDevice) -> list[SalusDevice]:
+        """Return the thermostats a mode change applies to (all of the gateway when synchronized)."""
+        if not self.sync_modes:
+            return [device]
+        return [
+            other
+            for other in self.data.values()
+            if other.get("_gateway_id") == device.get("_gateway_id") and is_climate_device(other)
+        ]
+
     async def async_set_hold_type(self, device_id: str, hold_type: int) -> None:
         """Set hold type of a thermostat, or of all thermostats of its gateway when modes are synchronized."""
         device = self._require_device(device_id)
-        targets = [device]
-        if self.sync_modes:
-            targets = [
-                other
-                for other in self.data.values()
-                if other.get("_gateway_id") == device.get("_gateway_id") and is_climate_device(other)
-            ]
-        await self._async_send(targets, {"ep9:sIT600TH:SetHoldType": hold_type})
+        await self._async_send(
+            self._thermostat_targets(device),
+            lambda target: {property_names_of(target).set_hold_type: hold_type},
+        )
+
+    async def async_set_hvac_mode(self, device_id: str, turn_on: bool) -> None:
+        """Set heating on or off, or all thermostats of the gateway when modes are synchronized.
+
+        Most thermostats use the hold type for this. The iT800 family ignores hold type changes for
+        the HVAC mode and additionally needs its SystemMode property. The matching hold type is sent
+        as well so the reported preset stays consistent with the mode.
+        """
+        device = self._require_device(device_id)
+
+        def command(target: SalusDevice) -> dict[str, Any]:
+            names = property_names_of(target)
+            if names.hvac_mode_uses_system_mode:
+                return {
+                    names.set_system_mode: 4 if turn_on else 0,
+                    names.set_hold_type: HOLD_TYPE_SCHEDULE if turn_on else HOLD_TYPE_STANDBY,
+                }
+            return {names.set_hold_type: HOLD_TYPE_SCHEDULE if turn_on else HOLD_TYPE_STANDBY}
+
+        await self._async_send(self._thermostat_targets(device), command)
 
     async def async_set_temperature(self, device_id: str, temperature: float) -> None:
         """Set target temperature of a thermostat (switches it to manual hold)."""
-        await self._async_send(
-            [self._require_device(device_id)],
-            {
-                "ep9:sIT600TH:SetHeatingSetpoint_x100": round(temperature * 100),
-                "ep9:sIT600TH:SetHoldType": HOLD_TYPE_MANUAL,
-                "ep9:sIT600TH:SetSystemMode": 4,
-            },
-        )
+        device = self._require_device(device_id)
+
+        def command(target: SalusDevice) -> dict[str, Any]:
+            names = property_names_of(target)
+            return {
+                names.set_heating_setpoint: round(temperature * 100),
+                names.set_hold_type: HOLD_TYPE_MANUAL,
+                names.set_system_mode: 4,
+            }
+
+        await self._async_send([device], command)
 
     async def async_set_switch(self, device_id: str, turn_on: bool) -> None:
         """Turn relay or smart plug on or off."""
-        await self._async_send([self._require_device(device_id)], {"ep9:sOnOffS:SetOnOff": 1 if turn_on else 0})
+        device = self._require_device(device_id)
+        await self._async_send([device], lambda target: {property_names_of(target).set_on_off: 1 if turn_on else 0})
 
     async def async_trigger_rule(self, gateway_id: str, rule_trigger_key: str) -> None:
         """Trigger a OneTouch rule of a gateway."""
@@ -252,24 +287,31 @@ class SalusCloudCoordinator(DataUpdateCoordinator[dict[str, SalusDevice]]):
             raise SalusCloudConnectionError("Not connected to AWS IoT")
         await self._connection.async_publish_shadow(device_code, device_index, properties)
 
-    async def _async_send(self, devices: list[SalusDevice], properties: dict[str, Any]) -> None:
+    async def _async_send(
+        self,
+        devices: list[SalusDevice],
+        properties: dict[str, Any] | Callable[[SalusDevice], dict[str, Any]],
+    ) -> None:
+        prepared = [(device, properties(device) if callable(properties) else properties) for device in devices]
         results = await asyncio.gather(
             *(
                 self._async_publish(
-                    device["device_code"], device.get("_shadow_device_index") or DEFAULT_SHADOW_INDEX, properties
+                    device["device_code"],
+                    device.get("_shadow_device_index") or DEFAULT_SHADOW_INDEX,
+                    device_properties,
                 )
-                for device in devices
+                for device, device_properties in prepared
             ),
             return_exceptions=True,
         )
         now = self._clock()
         failed: list[str] = []
-        for device, result in zip(devices, results, strict=True):
+        for (device, device_properties), result in zip(prepared, results, strict=True):
             if isinstance(result, BaseException):
-                _LOGGER.warning("Device %s did not accept %s: %s", device.get("name"), properties, result)
+                _LOGGER.warning("Device %s did not accept %s: %s", device.get("name"), device_properties, result)
                 failed.append((device.get("name") or device["device_code"]).strip())
             else:
-                self._store.set_pending(device["device_code"], properties, now)
+                self._store.set_pending(device["device_code"], device_properties, now)
         if len(failed) < len(devices):
             self.async_set_updated_data(self._build_data(now))
             if not self.push_available:

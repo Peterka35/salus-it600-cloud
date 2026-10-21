@@ -8,6 +8,7 @@ from homeassistant.components.climate import ClimateEntityFeature, HVACAction, H
 
 from custom_components.salus_it600_cloud import climate
 from custom_components.salus_it600_cloud.climate import SalusCloudClimate
+from custom_components.salus_it600_cloud.devices import is_climate_device
 
 from . import fixtures
 from .helpers import CALL_LATER, FakeApi, create_coordinator
@@ -18,6 +19,12 @@ def _entity(coordinator: object, device_id: str = fixtures.THERMOSTAT_ID) -> Sal
     entity.hass = MagicMock()
     entity.async_write_ha_state = MagicMock()
     return entity
+
+
+def test_it800_model_is_a_thermostat() -> None:
+    """An IT800TX is a thermostat even when its name has been customised."""
+
+    assert is_climate_device({"model": "IT800TX", "name": "Kitchen"})
 
 
 async def test_setup_creates_thermostats_only() -> None:
@@ -158,3 +165,91 @@ async def test_set_temperature_shows_new_target_immediately() -> None:
     ]
     assert entity.target_temperature == 21.5
     assert entity.preset_mode == "manual"
+
+
+async def test_it800_state_comes_from_ep1_properties() -> None:
+    """An iT800 thermostat reports its state under ep1 names, never the ep9 ones."""
+
+    api = FakeApi()
+    api.shadows[fixtures.THERMOSTAT_CODE] = fixtures.it800_thermostat_shadow(hold_type=2)
+    coordinator, _, _ = await create_coordinator(api)
+    entity = _entity(coordinator)
+
+    assert (entity.current_temperature, entity.target_temperature) == (22.0, 21.0)
+    assert (entity.hvac_mode, entity.preset_mode, entity.hvac_action) == (HVACMode.HEAT, "manual", HVACAction.IDLE)
+    assert entity.extra_state_attributes == {
+        "hold_type": "Manual Hold",
+        "system_mode": "Heat",
+        "battery_voltage": "2.8V",
+        "running_state": "Idle",
+    }
+
+
+async def test_it800_hvac_mode_uses_system_mode() -> None:
+    """The iT800 family changes the HVAC mode through SystemMode, not HoldType."""
+
+    api = FakeApi()
+    api.shadows[fixtures.THERMOSTAT_CODE] = fixtures.it800_thermostat_shadow(hold_type=0)
+    coordinator, connection, _ = await create_coordinator(api)
+    entity = _entity(coordinator)
+
+    with patch(CALL_LATER):
+        await entity.async_set_hvac_mode(HVACMode.OFF)
+        assert entity.hvac_mode == HVACMode.OFF
+        await entity.async_set_hvac_mode(HVACMode.HEAT)
+
+    assert connection.published == [
+        (
+            fixtures.THERMOSTAT_CODE,
+            "11",
+            {"ep1:sTherS:SetSystemMode": 0, "ep1:sComm:SetHoldType": 7},
+        ),
+        (
+            fixtures.THERMOSTAT_CODE,
+            "11",
+            {"ep1:sTherS:SetSystemMode": 4, "ep1:sComm:SetHoldType": 0},
+        ),
+    ]
+    assert entity.hvac_mode == HVACMode.HEAT
+
+
+async def test_it800_set_temperature_uses_ep1_properties() -> None:
+    """Temperature commands of an iT800 thermostat use the ep1 hold type and system mode."""
+
+    api = FakeApi()
+    api.shadows[fixtures.THERMOSTAT_CODE] = fixtures.it800_thermostat_shadow(hold_type=0)
+    coordinator, connection, _ = await create_coordinator(api)
+    entity = _entity(coordinator)
+
+    with patch(CALL_LATER):
+        await entity.async_set_temperature(temperature=21.5)
+
+    assert connection.published == [
+        (
+            fixtures.THERMOSTAT_CODE,
+            "11",
+            {
+                "ep1:sTherS:SetHeatingSetpoint_x100": 2150,
+                "ep1:sComm:SetHoldType": 2,
+                "ep1:sTherS:SetSystemMode": 4,
+            },
+        )
+    ]
+    assert entity.target_temperature == 21.5
+    assert entity.preset_mode == "manual"
+
+
+async def test_it800_preset_mode_uses_ep1_hold_type() -> None:
+    """Preset changes of an iT800 thermostat use the ep1 hold type property."""
+
+    api = FakeApi()
+    api.shadows[fixtures.THERMOSTAT_CODE] = fixtures.it800_thermostat_shadow(hold_type=0)
+    coordinator, connection, _ = await create_coordinator(api)
+    entity = _entity(coordinator)
+
+    with patch(CALL_LATER):
+        await entity.async_set_preset_mode("away")
+
+    assert connection.published == [(fixtures.THERMOSTAT_CODE, "11", {"ep1:sComm:SetHoldType": 7})]
+    assert entity.preset_mode == "away"
+    assert entity.hvac_mode == HVACMode.OFF

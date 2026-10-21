@@ -277,3 +277,57 @@ async def test_shutdown_stops_connection() -> None:
     await coordinator.async_shutdown()
 
     assert connection.stopped is True
+
+
+async def test_it800_mode_change_uses_ep1_hold_type() -> None:
+    """Hold type changes of an iT800 thermostat use its ep1 property names."""
+
+    api = FakeApi()
+    api.shadows[fixtures.THERMOSTAT_CODE] = fixtures.it800_thermostat_shadow(hold_type=0)
+    coordinator, connection, _ = await create_coordinator(api)
+
+    with patch(CALL_LATER):
+        await coordinator.async_set_hold_type(fixtures.THERMOSTAT_ID, 2)
+
+    assert connection.published == [(fixtures.THERMOSTAT_CODE, "11", {"ep1:sComm:SetHoldType": 2})]
+    assert coordinator.data[fixtures.THERMOSTAT_ID]["_shadow_properties"]["ep1:sComm:HoldType"] == 2
+
+
+async def test_it800_hvac_mode_command_uses_system_mode() -> None:
+    """HVAC mode of an iT800 thermostat is changed through SystemMode."""
+
+    api = FakeApi()
+    api.shadows[fixtures.THERMOSTAT_CODE] = fixtures.it800_thermostat_shadow(hold_type=0)
+    coordinator, connection, _ = await create_coordinator(api)
+
+    with patch(CALL_LATER):
+        await coordinator.async_set_hvac_mode(fixtures.THERMOSTAT_ID, turn_on=False)
+
+    assert connection.published == [
+        (
+            fixtures.THERMOSTAT_CODE,
+            "11",
+            {"ep1:sTherS:SetSystemMode": 0, "ep1:sComm:SetHoldType": 7},
+        )
+    ]
+    assert coordinator.data[fixtures.THERMOSTAT_ID]["_shadow_properties"]["ep1:sTherS:SystemMode"] == 0
+
+
+async def test_synchronized_mode_change_uses_each_devices_property_names() -> None:
+    """A synchronized mode change sends every thermostat the property names of its own family."""
+
+    api = FakeApi()
+    api.shadows[fixtures.THERMOSTAT_CODE] = fixtures.it800_thermostat_shadow(hold_type=0)
+    coordinator, connection, _ = await create_coordinator(api, sync=True)
+
+    with patch(CALL_LATER):
+        await coordinator.async_set_hvac_mode(fixtures.THERMOSTAT_ID, turn_on=False)
+
+    assert sorted(connection.published) == [
+        (fixtures.THERMOSTAT_2_CODE, "11", {"ep9:sIT600TH:SetHoldType": 7}),
+        (
+            fixtures.THERMOSTAT_CODE,
+            "11",
+            {"ep1:sTherS:SetSystemMode": 0, "ep1:sComm:SetHoldType": 7},
+        ),
+    ]

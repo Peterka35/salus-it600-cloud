@@ -104,6 +104,29 @@ def test_pending_setpoint_and_switch_use_reported_property_names() -> None:
     assert store.properties(RELAY, now=2) == {"ep9:sOnOffS:OnOff": 1}
 
 
+def test_pending_change_uses_reported_name_of_it800_properties() -> None:
+    """Commands of iT800 devices are shown under the ep1/ep2 names the device reports."""
+
+    store = _store()
+    store.update_reported(
+        THERMOSTAT,
+        "11",
+        {"ep1:sComm:HoldType": 0, "ep1:sTherS:HeatingSetpoint_x100": 2100},
+        now=0,
+    )
+
+    store.set_pending(
+        THERMOSTAT,
+        {"ep1:sComm:SetHoldType": 2, "ep1:sTherS:SetHeatingSetpoint_x100": 2250},
+        now=1,
+    )
+
+    assert store.properties(THERMOSTAT, now=2) == {
+        "ep1:sComm:HoldType": 2,
+        "ep1:sTherS:HeatingSetpoint_x100": 2250,
+    }
+
+
 def test_freshness_of_device_data() -> None:
     """Device data counts as fresh until max age passes since the last report."""
 

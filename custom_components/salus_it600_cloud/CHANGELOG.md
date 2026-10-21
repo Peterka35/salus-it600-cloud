@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Support for thermostats reporting `ep1` shadow properties (e.g. IT800TX): the integration detects the property
+  names a device reports and reads and writes temperature, HVAC mode, presets and relay state, and reads battery
+  voltage, with them. Devices reporting the existing `ep9` names are unchanged.
+- HVAC mode changes of `ep1` thermostats are sent through `SystemMode` (0 = off, 4 = heat) together with the
+  matching hold type, which is what those devices act on.
+
 ## [1.1.0] - 2026-09-11
 
 ### Added

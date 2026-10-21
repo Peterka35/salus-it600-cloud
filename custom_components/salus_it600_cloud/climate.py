@@ -37,13 +37,6 @@ HOLD_TYPE_NAMES = {
 }
 SYSTEM_MODE_NAMES = {0: "Off", 1: "Auto", 4: "Heat"}
 
-HOLD_TYPE = "ep9:sIT600TH:HoldType"
-SYSTEM_MODE = "ep9:sIT600TH:SystemMode"
-RUNNING_STATE = "ep9:sIT600TH:RunningState"
-LOCAL_TEMPERATURE = "ep9:sIT600TH:LocalTemperature_x100"
-HEATING_SETPOINT = "ep9:sIT600TH:HeatingSetpoint_x100"
-BATTERY_VOLTAGE = "ep9:sBasicS:BatteryVoltage"
-
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -84,20 +77,21 @@ class SalusCloudClimate(SalusEntity, ClimateEntity):
     @property
     def current_temperature(self) -> float | None:
         """Return the measured temperature."""
-        return self._temperature(LOCAL_TEMPERATURE)
+        return self._temperature(self.property_names.local_temperature)
 
     @property
     def target_temperature(self) -> float | None:
         """Return the target temperature."""
-        return self._temperature(HEATING_SETPOINT)
+        return self._temperature(self.property_names.heating_setpoint)
 
     @property
     def hvac_mode(self) -> HVACMode | None:
         """Return off for stand-by or system mode off, heat otherwise."""
         properties = self.shadow_properties
+        names = self.property_names
         if not properties:
             return None
-        if properties.get(HOLD_TYPE) == HOLD_TYPE_STANDBY or properties.get(SYSTEM_MODE) == 0:
+        if properties.get(names.hold_type) == HOLD_TYPE_STANDBY or properties.get(names.system_mode) == 0:
             return HVACMode.OFF
         return HVACMode.HEAT
 
@@ -109,12 +103,14 @@ class SalusCloudClimate(SalusEntity, ClimateEntity):
             return None
         if hvac_mode == HVACMode.OFF:
             return HVACAction.OFF
-        return HVACAction.HEATING if self.shadow_properties.get(RUNNING_STATE) == 1 else HVACAction.IDLE
+        if self.shadow_properties.get(self.property_names.running_state) == 1:
+            return HVACAction.HEATING
+        return HVACAction.IDLE
 
     @property
     def preset_mode(self) -> str | None:
         """Return preset matching the hold type."""
-        hold_type = self.shadow_properties.get(HOLD_TYPE)
+        hold_type = self.shadow_properties.get(self.property_names.hold_type)
         if hold_type is None:
             return None
         return HOLD_TYPE_TO_PRESET.get(hold_type, PRESET_MANUAL)
@@ -129,9 +125,8 @@ class SalusCloudClimate(SalusEntity, ClimateEntity):
         await self.coordinator.async_set_hold_type(self._device_id, PRESET_TO_HOLD_TYPE[preset_mode])
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        """Set off (stand-by) or heat (follow schedule), synchronized across the gateway when enabled."""
-        hold_type = HOLD_TYPE_STANDBY if hvac_mode == HVACMode.OFF else HOLD_TYPE_SCHEDULE
-        await self.coordinator.async_set_hold_type(self._device_id, hold_type)
+        """Set off or heat, synchronized across the gateway when enabled."""
+        await self.coordinator.async_set_hvac_mode(self._device_id, hvac_mode == HVACMode.HEAT)
 
     async def async_turn_on(self) -> None:
         """Turn heating on (follow schedule)."""
@@ -145,13 +140,14 @@ class SalusCloudClimate(SalusEntity, ClimateEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return hold type, system mode, battery voltage and running state."""
         properties = self.shadow_properties
+        names = self.property_names
         attributes: dict[str, Any] = {}
-        if (hold_type := properties.get(HOLD_TYPE)) is not None:
+        if (hold_type := properties.get(names.hold_type)) is not None:
             attributes["hold_type"] = HOLD_TYPE_NAMES.get(hold_type, f"Unknown ({hold_type})")
-        if (system_mode := properties.get(SYSTEM_MODE)) is not None:
+        if (system_mode := properties.get(names.system_mode)) is not None:
             attributes["system_mode"] = SYSTEM_MODE_NAMES.get(system_mode, f"Unknown ({system_mode})")
-        if (battery_voltage := properties.get(BATTERY_VOLTAGE)) is not None:
+        if (battery_voltage := properties.get(names.battery_voltage)) is not None:
             attributes["battery_voltage"] = f"{battery_voltage / 10:.1f}V"
-        if (running_state := properties.get(RUNNING_STATE)) is not None:
+        if (running_state := properties.get(names.running_state)) is not None:
             attributes["running_state"] = "Heating" if running_state == 1 else "Idle"
         return attributes

@@ -5,13 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-# Commands are sent as "Set*" desired properties, devices report the result under these property names
-DESIRED_TO_REPORTED = {
-    "ep9:sIT600TH:SetHoldType": "ep9:sIT600TH:HoldType",
-    "ep9:sIT600TH:SetHeatingSetpoint_x100": "ep9:sIT600TH:HeatingSetpoint_x100",
-    "ep9:sIT600TH:SetSystemMode": "ep9:sIT600TH:SystemMode",
-    "ep9:sOnOffS:SetOnOff": "ep9:sOnOffS:OnOff",
-}
+
+def reported_property(desired: str) -> str:
+    """Return the reported property name of a "Set*" desired property."""
+    prefix, separator, name = desired.partition(":Set")
+    return f"{prefix}:{name}" if separator else desired
 
 
 def extract_reported(shadow: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
@@ -62,7 +60,7 @@ class DeviceStateStore:
 
         device = self._devices.setdefault(device_code, _DeviceState())
         for name, value in desired.items():
-            device.pending[DESIRED_TO_REPORTED.get(name, name)] = (value, now + self._pending_timeout)
+            device.pending[reported_property(name)] = (value, now + self._pending_timeout)
 
     def properties(self, device_code: str, now: float) -> dict[str, Any]:
         """Return reported properties overridden by commanded changes the device has not reported yet."""
